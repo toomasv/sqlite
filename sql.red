@@ -1,5 +1,5 @@
 Red []
-do %../table/table.red
+do %table.red
 sql: func ['query /tabulate format][
 	if string? query [query: rejoin [{"} query {"}]] 
 	call/output rejoin [{sqlite } query] out: clear "" 
@@ -17,4 +17,3 @@ sql: func ['query /tabulate format][
 		][out]
 	]
 ]
-;repeat i res/1 [probe copy/part at res/2 i - 1 * cols + 1 cols]

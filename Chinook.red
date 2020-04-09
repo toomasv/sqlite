@@ -2,7 +2,7 @@ Red [
 	Needs: View
 ]
 #include %SQLite3.red
-#include %../diagram/diagram-style.red
+#include %diagram-style.red
 ;#include %../table/table.red
 
 result: make block! 100
