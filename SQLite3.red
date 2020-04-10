@@ -17,6 +17,8 @@ Red [
 	sqlite: context [
 		db-current: declare sqlite3!
 		db-ref: declare sqlite3-ptr!
+		sql-stmt: declare sqlite3-ptr!
+		sql-tail: declare string-ptr!
 		errmsg: declare string-ptr!
 		data:   declare int-ptr!
 		str:    declare c-string!
@@ -274,16 +276,33 @@ Red [
 			SQLITE_FETCH_HANDLE(hnd)
 			db-ptr: dbs-head + hnd/value
 			db: as sqlite3! db-ptr/value
-			;#if debug [
-			;	TRACE(["DB: " hnd/value " " db])
-			;]
+			;TRACE(["DB: " hnd/value " " db])
+		]
+		#define SQLITE_FOR_COLUMNS(sqlite3-func) [
+			blk: as red-block! _set-word-value
+			i: 0
+			loop columns [
+				val1: sqlite3-func sql-stmt/value i
+				either as-logic val1 [
+					val: string/load-in 
+						val1
+						length? val1
+						blk
+						UTF-8
+				][
+					none/make-in blk UTF-8
+				]
+				if i = 0 [
+					val/header: val/header or flag-new-line
+				]
+				i: i + 1
+			]
 		]
 		#define ASSERT_SET(_set-word) [
 			if _set-word/index < 0 [
 				throw-error cmds cmd false
 			]
 		]
-		
 		#define AS_INT(value index) [
 			get-int as red-integer! value + index
 		]
@@ -302,6 +321,7 @@ Red [
 		_Exec:           symbol/make "exec"
 		_Use:            symbol/make "use"
 		_Trace:          symbol/make "trace"
+		_Qry:			 symbol/make "qry"
 
 		_SQLite3-DB!:    symbol/make "SQLite3-DB!"
 
@@ -328,6 +348,12 @@ Red [
 				db        [sqlite3!]
 				type      [integer!]
 				sql       [c-string!]
+				
+				columns	  [integer!]
+				blk       [red-block!]
+				val1	  [c-string!]
+				val       [red-string!]
+				
 		][
 			cmd:  block/rs-head cmds
 			tail: block/rs-tail cmds
@@ -344,10 +370,32 @@ Red [
 						word:  as red-word! cmd
 						sym:   symbol/resolve word/symbol
 						symb:  symbol/get sym
-						;#if debug [
-						;	TRACE(["--> " symb/cache])
-						;]
+						;TRACE(["--> " symb/cache])
 						case [
+							sym = _Qry [
+								SQLITE_FETCH_NAMED_VALUE(TYPE_STRING)
+								sql: to-string value
+								
+								either _set-word/index < 0 [
+									probe _set-word/index
+								][
+									_set-word-value: _context/get _set-word
+									if TYPE_OF(_set-word-value) <> TYPE_BLOCK [
+										block/make-at as red-block! _set-word-value 8
+									]
+									len: length? sql
+									status: sqlite3_prepare_v2 db-current sql len sql-stmt sql-tail
+									if status = SQLITE_OK [
+										columns: sqlite3_column_count sql-stmt/value
+										;SQLITE_FOR_COLUMNS(sqlite3_column_name)
+										while [SQLITE_ROW = sqlite3_step sql-stmt/value][
+											SQLITE_FOR_COLUMNS(sqlite3_column_text)
+										]
+										status: sqlite3_finalize sql-stmt/value
+										;probe columns
+									]
+								]
+							]
 							sym = _Exec [
 								SQLITE_FETCH_NAMED_VALUE(TYPE_STRING)
 								sql: to-string value
@@ -361,7 +409,7 @@ Red [
 										block/make-at as red-block! _set-word-value 8
 									]
 									status: sqlite3_exec db-current sql :on-row-collect data errmsg
-									probe data/value
+									probe data/value														; Clumsy way to get number of rows. Used in sql func.
 								]
 							]
 							sym = _Open [
@@ -380,9 +428,7 @@ Red [
 											db-current: db-ref/value
 											set-handle _SQLite3-DB! i 0
 											db-ptr/value: as integer! db-ref/value
-											;#if debug [
-											;	TRACE(["DB: " i " " db-ref/value])
-											;]
+											;TRACE(["DB: " i " " db-ref/value])
 										]
 										
 									][
@@ -463,6 +509,14 @@ SQLite: context [
 	][
 		unless into [result: clear head output]
 		do compose [result: exec (sql)]
+		result
+	]
+	qry: func [
+		"Execute prepared statement"
+		sql [string!]
+	][
+		result: clear head output
+		do compose [result: qry (sql)]
 		result
 	]
 ]

@@ -24,12 +24,13 @@ change-db: func [dbfile][
 ]
 
 if not empty? args: load/all system/script/args [
-	either string? qry: first args [
-		probe SQLite/query qry
+	either string? sql: first args [
+		;probe SQLite/query sql
+		probe SQLite/qry sql
 	][
 		switch first args [
 			change-db [do args]
-			.databases [probe length? databases probe databases]
+			.databases [probe databases]
 			.tables [probe extract-tables]
 			.schema [
 				print mold/only SQLite/query rejoin ["SELECT sql FROM sqlite_master WHERE name='" second args "'"]
