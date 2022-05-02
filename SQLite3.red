@@ -8,17 +8,15 @@ Red [
 #system [
 	#include %SQLite3.reds
 
-	#define TRACE(value) [
-		print-line value ;only for debugging purposes
-	]
+	; #define TRACE(value) [
+		; print-line value ;only for debugging purposes
+	; ]
 
 	#define SQLITE_MAX_DBS 16
 
 	sqlite: context [
 		db-current: declare sqlite3!
 		db-ref: declare sqlite3-ptr!
-		sql-stmt: declare sqlite3-ptr!
-		sql-tail: declare string-ptr!
 		errmsg: declare string-ptr!
 		data:   declare int-ptr!
 		str:    declare c-string!
@@ -60,45 +58,45 @@ Red [
 			null
 		]
 
-		on-trace: function [[cdecl]
-			"Trace callback"
-			type     [integer!]
-			context  [int-ptr!] 
-			statement[int-ptr!] 
-			arg4     [int-ptr!] 
-			return: [integer!]
-			/local
-				bignum [int64!]
-				f      [float!]
-		][
-			print ["TRACE[" type "] "]
-			switch type [
-				SQLITE_TRACE_STMT [
-					print-line ["STMT: " as c-string! arg4]
-				]
-				SQLITE_TRACE_PROFILE [
-					;@@ TODO: change when we will get real integer64! support in Red
-					bignum: as int64! arg4
-					either bignum/hi = 0 [
-						f: (as float! bignum/lo) * 1E-6
-						print-line ["PROFILE: " f "ms"]
-					][
-						print-line ["PROFILE: " as int-ptr! bignum/hi as int-ptr! bignum/lo]
-					]
+		; on-trace: function [[cdecl]
+			; "Trace callback"
+			; type     [integer!]
+			; context  [int-ptr!] 
+			; statement[int-ptr!] 
+			; arg4     [int-ptr!] 
+			; return: [integer!]
+			; /local
+				; bignum [int64!]
+				; f      [float!]
+		; ][
+			; print ["TRACE[" type "] "]
+			; switch type [
+				; SQLITE_TRACE_STMT [
+					; print-line ["STMT: " as c-string! arg4]
+				; ]
+				; SQLITE_TRACE_PROFILE [
+					; @@ TODO: change when we will get real integer64! support in Red
+					; bignum: as int64! arg4
+					; either bignum/hi = 0 [
+						; f: (as float! bignum/lo) * 1E-6
+						; print-line ["PROFILE: " f "ms"]
+					; ][
+						; print-line ["PROFILE: " as int-ptr! bignum/hi as int-ptr! bignum/lo]
+					; ]
 					
-				]
-				SQLITE_TRACE_ROW [
-					print-line "ROW"
-				]
-				SQLITE_TRACE_CLOSE [
-					print-line "CLOSE"
-				]
-				default [
-					print-line "unknown"
-				]
-			]
-			SQLITE_OK
-		]
+				; ]
+				; SQLITE_TRACE_ROW [
+					; print-line "ROW"
+				; ]
+				; SQLITE_TRACE_CLOSE [
+					; print-line "CLOSE"
+				; ]
+				; default [
+					; print-line "unknown"
+				; ]
+			; ]
+			; SQLITE_OK
+		; ]
 
 		on-row: function [[cdecl]
 			"Process a result row."
@@ -276,33 +274,16 @@ Red [
 			SQLITE_FETCH_HANDLE(hnd)
 			db-ptr: dbs-head + hnd/value
 			db: as sqlite3! db-ptr/value
-			;TRACE(["DB: " hnd/value " " db])
-		]
-		#define SQLITE_FOR_COLUMNS(sqlite3-func) [
-			blk: as red-block! _set-word-value
-			i: 0
-			loop columns [
-				val1: sqlite3-func sql-stmt/value i
-				either as-logic val1 [
-					val: string/load-in 
-						val1
-						length? val1
-						blk
-						UTF-8
-				][
-					none/make-in blk UTF-8
-				]
-				if i = 0 [
-					val/header: val/header or flag-new-line
-				]
-				i: i + 1
-			]
+			;#if debug [
+			;	TRACE(["DB: " hnd/value " " db])
+			;]
 		]
 		#define ASSERT_SET(_set-word) [
 			if _set-word/index < 0 [
 				throw-error cmds cmd false
 			]
 		]
+		
 		#define AS_INT(value index) [
 			get-int as red-integer! value + index
 		]
@@ -320,8 +301,7 @@ Red [
 		_Close:          symbol/make "close"
 		_Exec:           symbol/make "exec"
 		_Use:            symbol/make "use"
-		_Trace:          symbol/make "trace"
-		_Qry:			 symbol/make "qry"
+		; _Trace:          symbol/make "trace"
 
 		_SQLite3-DB!:    symbol/make "SQLite3-DB!"
 
@@ -348,12 +328,6 @@ Red [
 				db        [sqlite3!]
 				type      [integer!]
 				sql       [c-string!]
-				
-				columns	  [integer!]
-				blk       [red-block!]
-				val1	  [c-string!]
-				val       [red-string!]
-				
 		][
 			cmd:  block/rs-head cmds
 			tail: block/rs-tail cmds
@@ -370,32 +344,10 @@ Red [
 						word:  as red-word! cmd
 						sym:   symbol/resolve word/symbol
 						symb:  symbol/get sym
-						;TRACE(["--> " symb/cache])
+						;#if debug [
+						;	TRACE(["--> " symb/cache])
+						;]
 						case [
-							sym = _Qry [
-								SQLITE_FETCH_NAMED_VALUE(TYPE_STRING)
-								sql: to-string value
-								
-								either _set-word/index < 0 [
-									probe _set-word/index
-								][
-									_set-word-value: _context/get _set-word
-									if TYPE_OF(_set-word-value) <> TYPE_BLOCK [
-										block/make-at as red-block! _set-word-value 8
-									]
-									len: length? sql
-									status: sqlite3_prepare_v2 db-current sql len sql-stmt sql-tail
-									if status = SQLITE_OK [
-										columns: sqlite3_column_count sql-stmt/value
-										;SQLITE_FOR_COLUMNS(sqlite3_column_name)
-										while [SQLITE_ROW = sqlite3_step sql-stmt/value][
-											SQLITE_FOR_COLUMNS(sqlite3_column_text)
-										]
-										status: sqlite3_finalize sql-stmt/value
-										;probe columns
-									]
-								]
-							]
 							sym = _Exec [
 								SQLITE_FETCH_NAMED_VALUE(TYPE_STRING)
 								sql: to-string value
@@ -409,7 +361,7 @@ Red [
 										block/make-at as red-block! _set-word-value 8
 									]
 									status: sqlite3_exec db-current sql :on-row-collect data errmsg
-									probe data/value														; Clumsy way to get number of rows. Used in sql func.
+									probe data/value
 								]
 							]
 							sym = _Open [
@@ -428,7 +380,9 @@ Red [
 											db-current: db-ref/value
 											set-handle _SQLite3-DB! i 0
 											db-ptr/value: as integer! db-ref/value
-											;TRACE(["DB: " i " " db-ref/value])
+											;#if debug [
+											;	TRACE(["DB: " i " " db-ref/value])
+											;]
 										]
 										
 									][
@@ -456,12 +410,12 @@ Red [
 								close-dbs
 								RESET_HANDLE(_last-handle)
 							]
-							sym = _Trace [
-								SQLITE_FETCH_VALUE_2(TYPE_INTEGER TYPE_LOGIC)
-								i: AS_INT(start 0)
-								print-line i
-								sqlite3_trace_v2 db-current AS_INT(start 0) :on-trace null
-							]
+							; sym = _Trace [
+								; SQLITE_FETCH_VALUE_2(TYPE_INTEGER TYPE_LOGIC)
+								; i: AS_INT(start 0)
+								; print-line i
+								; sqlite3_trace_v2 db-current AS_INT(start 0) :on-trace null
+							; ]
 
 							true [ throw-error cmds cmd false ]
 						]
@@ -509,14 +463,6 @@ SQLite: context [
 	][
 		unless into [result: clear head output]
 		do compose [result: exec (sql)]
-		result
-	]
-	qry: func [
-		"Execute prepared statement"
-		sql [string!]
-	][
-		result: clear head output
-		do compose [result: qry (sql)]
 		result
 	]
 ]

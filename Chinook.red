@@ -2,7 +2,7 @@ Red [
 	Needs: View
 ]
 #include %SQLite3.red
-#include %../diagram/diagram-style.red
+#include %diagram-style.red
 ;#include %../table/table.red
 
 result: make block! 100
@@ -40,6 +40,7 @@ change-data: func [/local fields tbl][
 					mold/only new-line/all extract at probe fields 2 6 true
 				]
 			]
+			;query/text: form SQLite/cols
 		]
 	]
 ]
